@@ -1,5 +1,3 @@
-#![warn(rust_2018_idioms)]
-#![allow(unused_imports)]
 use thiserror::Error;
 
 #[derive(Error, Debug)]

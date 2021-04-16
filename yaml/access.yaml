@@ -2,29 +2,29 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: clux
-  namespace: default
+  name: controller
+  namespace: foo-controller
 
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: control-foos
+  name: foo-controller
 rules:
-- apiGroups: ["clux.dev"]
+- apiGroups: ["imjasonh.dev"]
   resources: ["foos", "foos/status"]
   verbs: ["list", "get", "watch", "create", "delete", "patch"]
 
 ---
 kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1beta1
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: foobbar-view
+  name: foo-controller
 subjects:
 - kind: ServiceAccount
-  name: clux-foo-access
-  namespace: default
+  name: controller
+  namespace: foo-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: control-foos
+  name: foo-controller

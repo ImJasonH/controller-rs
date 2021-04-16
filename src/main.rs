@@ -1,12 +1,11 @@
-#![allow(unused_imports, unused_variables)]
 pub use controller::*;
 use prometheus::{Encoder, TextEncoder};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{info, warn};
 use tracing_subscriber::{prelude::*, EnvFilter, Registry};
 
 use actix_web::{
     get, middleware,
-    web::{self, Data},
+    web::{Data},
     App, HttpRequest, HttpResponse, HttpServer, Responder,
 };
 

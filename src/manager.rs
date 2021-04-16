@@ -10,32 +10,73 @@ use kube_runtime::controller::{Context, Controller, ReconcilerAction};
 use maplit::hashmap;
 use prometheus::{
     default_registry, proto::MetricFamily, register_histogram_vec, register_int_counter, Exemplar,
-    HistogramOpts, HistogramVec, IntCounter,
+    HistogramVec, IntCounter,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, sync::Arc};
+use std::{sync::Arc};
 use tokio::{
     sync::RwLock,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, event, field, info, instrument, trace, warn, Level, Span};
+use tracing::{field, info, instrument, warn, Span};
+
+///////// TYPES
 
 /// Our Foo custom resource spec
 #[derive(CustomResource, Deserialize, Serialize, Clone, Debug, JsonSchema)]
-#[kube(kind = "Foo", group = "clux.dev", version = "v1", namespaced)]
-#[kube(status = "FooStatus")]
+#[kube(
+    group = "imjasonh.com",
+    version = "v1alpha1",
+    kind = "Foo",
+    namespaced,
+    status = "FooStatus",
+    printcolumn = r#"{"name":"Good", "type":"string", "description":"whether it's good", "jsonPath":".status.conditions[?(@.type==\"Good\")].status"}"#,
+    printcolumn = r#"{"name":"Reason", "type":"string", "description":"reason it's good or not", "jsonPath":".status.conditions[?(@.type==\"Good\")].reason"}"#,
+)]
 pub struct FooSpec {
     name: String,
-    info: String,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
 pub struct FooStatus {
-    is_bad: bool,
-    //last_updated: Option<DateTime<Utc>>,
+    conditions: Vec<Condition>,
 }
+
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+enum Type {
+    Good,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+enum Status {
+    True,
+    False,
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+enum Severity {
+    #[serde(rename = "")]
+    Error,
+    Warning,
+    Info,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Condition {
+    #[serde(rename = "type")]
+    type_: Type,
+    status: Status,
+    reason: String,
+    message: String,
+    severity: Severity,
+    last_transition_time: DateTime<Utc>,
+}
+
+///////// CONTROLLER
 
 // Context for our reconciler
 #[derive(Clone)]
@@ -60,14 +101,38 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
     let ns = Resource::namespace(&foo).expect("foo is namespaced");
     let foos: Api<Foo> = Api::namespaced(client, &ns);
 
-    let new_status = Patch::Apply(json!({
-        "apiVersion": "clux.dev/v1",
+    let mut new_status = Patch::Apply(json!({
+        "apiVersion": "imjasonh.com/v1alpha1",
         "kind": "Foo",
         "status": FooStatus {
-            is_bad: foo.spec.info.contains("bad"),
-            //last_updated: Some(Utc::now()),
-        }
+            conditions: vec![Condition {
+                type_: Type::Good,
+                status: Status::True,
+                severity: Severity::Info,
+                reason: "Good".to_string(),
+                message: "Name is good".to_string(),
+                last_transition_time: Utc::now(),
+            }],
+        },
     }));
+
+    if name.contains("bad") {
+         new_status = Patch::Apply(json!({
+            "apiVersion": "imjasonh.com/v1alpha1",
+            "kind": "Foo",
+            "status": FooStatus {
+                conditions: vec![Condition {
+                    type_: Type::Good,
+                    status: Status::False,
+                    severity: Severity::Error,
+                    reason: "NotGood".to_string(),
+                    message: "Name is bad".to_string(),
+                    last_transition_time: Utc::now(),
+                }],
+            },
+        }));
+    }
+
     let ps = PatchParams::apply("cntrlr").force();
     let _o = foos
         .patch_status(&name, &ps, &new_status)
@@ -89,12 +154,15 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
         requeue_after: Some(Duration::from_secs(3600 / 2)),
     })
 }
+
 fn error_policy(error: &Error, _ctx: Context<Data>) -> ReconcilerAction {
     warn!("reconcile failed: {:?}", error);
     ReconcilerAction {
         requeue_after: Some(Duration::from_secs(360)),
     }
 }
+
+///////// METRICS
 
 /// Metrics exposed on /metrics
 #[derive(Clone)]
@@ -132,6 +200,8 @@ impl State {
         }
     }
 }
+
+///////// ENTRYPOINT
 
 /// Data owned by the Manager
 #[derive(Clone)]

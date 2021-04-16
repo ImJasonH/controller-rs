@@ -42,10 +42,3 @@ opentelemetry-otlp = { version = "0.6.0", features = ["tokio"] }
 
 # exemplar support
 prometheus = { git = "https://github.com/clux/rust-prometheus.git", rev = "c9f7ea9652e27cd2d872937c5efbe72f20db0d5e" }
-
-# local dev
-#kube = { path = "../kube-rs/kube", features = ["derive"] }
-#kube-runtime = { path = "../kube-rs/kube-runtime" }
-#kube = { git = "https://github.com/clux/kube-rs.git", rev = "698f421652032aec5302eefa1593a4bee0d28b77", features = ["derive"] }
-#kube-runtime = { git = "https://github.com/clux/kube-rs.git", rev = "698f421652032aec5302eefa1593a4bee0d28b77" }
-#prometheus = { path = "../rust-prometheus" }
