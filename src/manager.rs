@@ -15,7 +15,7 @@ use prometheus::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{sync::Arc};
+use std::sync::Arc;
 use tokio::{
     sync::RwLock,
     time::{Duration, Instant},
@@ -33,7 +33,7 @@ use tracing::{field, info, instrument, warn, Span};
     namespaced,
     status = "FooStatus",
     printcolumn = r#"{"name":"Good", "type":"string", "description":"whether it's good", "jsonPath":".status.conditions[?(@.type==\"Good\")].status"}"#,
-    printcolumn = r#"{"name":"Reason", "type":"string", "description":"reason it's good or not", "jsonPath":".status.conditions[?(@.type==\"Good\")].reason"}"#,
+    printcolumn = r#"{"name":"Reason", "type":"string", "description":"reason it's good or not", "jsonPath":".status.conditions[?(@.type==\"Good\")].reason"}"#
 )]
 pub struct FooSpec {
     name: String,
@@ -73,7 +73,8 @@ pub struct Condition {
     reason: String,
     message: String,
     severity: Severity,
-    last_transition_time: DateTime<Utc>,
+    // TODO: patching this volatile time results in infinite reconciling :(
+    // last_transition_time: DateTime<Utc>,
 }
 
 ///////// CONTROLLER
@@ -88,6 +89,8 @@ struct Data {
     /// Various prometheus metrics
     metrics: Metrics,
 }
+
+const RESYNC: Duration = Duration::from_secs(30 * 60);
 
 #[instrument(skip(ctx), fields(trace_id))]
 async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Error> {
@@ -111,13 +114,12 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
                 severity: Severity::Info,
                 reason: "Good".to_string(),
                 message: "Name is good".to_string(),
-                last_transition_time: Utc::now(),
+                // last_transition_time: Utc::now(),
             }],
         },
     }));
-
     if name.contains("bad") {
-         new_status = Patch::Apply(json!({
+        new_status = Patch::Apply(json!({
             "apiVersion": "imjasonh.com/v1alpha1",
             "kind": "Foo",
             "status": FooStatus {
@@ -127,12 +129,11 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
                     severity: Severity::Error,
                     reason: "NotGood".to_string(),
                     message: "Name is bad".to_string(),
-                    last_transition_time: Utc::now(),
+                    // last_transition_time: Utc::now(),
                 }],
             },
         }));
     }
-
     let ps = PatchParams::apply("cntrlr").force();
     let _o = foos
         .patch_status(&name, &ps, &new_status)
@@ -147,11 +148,14 @@ async fn reconcile(foo: Foo, ctx: Context<Data>) -> Result<ReconcilerAction, Err
         .with_label_values(&[])
         .observe_with_exemplar(duration, ex);
     ctx.get_ref().metrics.handled_events.inc();
-    info!("Reconciled Foo \"{}\" in {}", name, ns);
+    info!(
+        "Reconciled Foo \"{}\" in namespace \"{}\" in {}",
+        name, ns, duration
+    );
 
     // If no events were received, check back every 30 minutes
     Ok(ReconcilerAction {
-        requeue_after: Some(Duration::from_secs(3600 / 2)),
+        requeue_after: Some(RESYNC),
     })
 }
 
